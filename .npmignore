@@ -4,28 +4,25 @@ yarn.lock
 
 # Project files
 CONTRIBUTING.md
-CODE_OF_CONDUCT.md
 README.md
 
 # Config files
-.babelrc
 babel.config.js
-.editorconfig
+.clang-format
 .eslintrc
-.flowconfig
 .watchmanconfig
-jsconfig.json
 .npmrc
-.gitattributes
 .circleci
 *.coverage.json
 .opensource
-.circleci
-.eslintignore
 codecov.yml
+
+# Scripts
+scripts/
 
 # Example
 example/
+app.json
 
 # Android
 android/*/build/
@@ -66,10 +63,8 @@ ios/build/
 # Misc
 .DS_Store
 .DS_Store?
-*.DS_Store
 coverage.android.json
 coverage.ios.json
-coverage
 npm-debug.log
 .github
 ._*
@@ -79,8 +74,6 @@ ehthumbs.db
 Thumbs.dbandroid/gradle
 docs
 .idea
-tests/
 bin/test.js
 codorials
-.vscode
-.nyc_output
+website/

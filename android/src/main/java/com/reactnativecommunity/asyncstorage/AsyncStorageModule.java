@@ -15,6 +15,7 @@ import com.facebook.common.logging.FLog;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.GuardedAsyncTask;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
@@ -33,7 +34,7 @@ import java.util.concurrent.Executors;
 
 @ReactModule(name = AsyncStorageModule.NAME)
 public final class AsyncStorageModule
-    extends ReactContextBaseJavaModule implements ModuleDataCleaner.Cleanable {
+    extends ReactContextBaseJavaModule implements ModuleDataCleaner.Cleanable, LifecycleEventListener {
 
   // changed name to not conflict with AsyncStorage from RN repo
   public static final String NAME = "RNC_AsyncSQLiteDBStorage";
@@ -44,37 +45,6 @@ public final class AsyncStorageModule
 
   private ReactDatabaseSupplier mReactDatabaseSupplier;
   private boolean mShuttingDown = false;
-
-  // Adapted from https://android.googlesource.com/platform/frameworks/base.git/+/1488a3a19d4681a41fb45570c15e14d99db1cb66/core/java/android/os/AsyncTask.java#237
-  private class SerialExecutor implements Executor {
-    private final ArrayDeque<Runnable> mTasks = new ArrayDeque<Runnable>();
-    private Runnable mActive;
-    private final Executor executor;
-
-    SerialExecutor(Executor executor) {
-      this.executor = executor;
-    }
-
-    public synchronized void execute(final Runnable r) {
-      mTasks.offer(new Runnable() {
-        public void run() {
-          try {
-            r.run();
-          } finally {
-            scheduleNext();
-          }
-        }
-      });
-      if (mActive == null) {
-        scheduleNext();
-      }
-    }
-    synchronized void scheduleNext() {
-      if ((mActive = mTasks.poll()) != null) {
-        executor.execute(mActive);
-      }
-    }
-  }
 
   private final SerialExecutor executor;
 
@@ -90,7 +60,12 @@ public final class AsyncStorageModule
   @VisibleForTesting
   AsyncStorageModule(ReactApplicationContext reactContext, Executor executor) {
     super(reactContext);
+    // The migration MUST run before the AsyncStorage database is created for the first time.
+    AsyncStorageExpoMigration.migrate(reactContext);
+
     this.executor = new SerialExecutor(executor);
+    reactContext.addLifecycleEventListener(this);
+    // Creating the database MUST happen after the migration.
     mReactDatabaseSupplier = ReactDatabaseSupplier.getInstance(reactContext);
   }
 
@@ -116,6 +91,18 @@ public final class AsyncStorageModule
     // cause a privacy violation. We're still not recovering from this well, but at least the error
     // will be reported to the server.
     mReactDatabaseSupplier.clearAndCloseDatabase();
+  }
+
+  @Override
+  public void onHostResume() {}
+
+  @Override
+  public void onHostPause() {}
+
+  @Override
+  public void onHostDestroy() {
+    // ensure we close database when activity is destroyed
+    mReactDatabaseSupplier.closeDatabase();
   }
 
   /**

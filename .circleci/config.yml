@@ -18,13 +18,19 @@ checkout step for each job: &addWorkspace
 default config for js: &js_defaults
   <<: *defaults
   docker:
-    - image: circleci/node:8
+    - image: circleci/node:14
 
 default config for macOS: &macos_defaults
   <<: *defaults
   resource_class: 'medium'
   macos:
-    xcode: '10.1.0'
+    xcode: '13.2.1'
+
+config for macOS (android): &macos_defaults_android
+  <<: *defaults
+  resource_class: 'medium'
+  macos:
+    xcode: '11.5.0'
 
 default config for android apk builds: &android_defaults
   <<: *defaults
@@ -33,75 +39,81 @@ default config for android apk builds: &android_defaults
   resource_class: 'medium'
   working_directory: ~/async_storage
   environment:
-    - _JAVA_OPTIONS: '-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Xmx2048m'
-    - GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs="-XX:+HeapDumpOnOutOfMemoryError -Xmx2048m"'
+    - _JAVA_OPTIONS: '-XX:+UnlockExperimentalVMOptions -Xmx2048m'
     - BUILD_THREADS: 2
 
 # ==============================
 # CACHE CONFIG
 # ==============================
 
-# brew
-save brew cache: &cache_save_brew
-  name: Saving Brew cache
-  paths:
-    - /usr/local/Homebrew
-    - ~/Library/Caches/Homebrew
-  key: legacy-brew-cache-{{ arch }}
+cache keys:
+  brew ios: &key_brew_ios cache-brew-ios-v5-{{ arch }}
+  brew android: &key_brew_android cache-brew-android-v4-{{ arch }}
+  yarn: &key_yarn cache-yarn-{{ checksum "package.json" }}-{{ arch }}
+  gradle: &key_gradle cache-gradle-v2-{{ checksum "example/android/gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "package.json" }}-{{ arch }}
+  pods: &key_pods cache-pods-v0.64-{{ checksum "example/ios/Podfile" }}-{{ checksum "package.json" }}-{{ arch }}
 
-restore brew cache: &cache_restore_brew
-  name: Restoring Brew cache
-  keys:
-    - legacy-brew-cache-{{ arch }}
+cache:
+  # brew
+  save brew cache for ios: &cache_save_brew_ios
+    name: Saving Brew cache
+    paths:
+      - ~/Library/Caches/Homebrew
+    key: *key_brew_ios
 
-save brew cache for android: &cache_save_brew_android
-  name: Saving Brew cache for android
-  paths:
-  - /usr/local/Homebrew
-  - ~/Library/Caches/Homebrew
-  key: legacy-brew-cache-{{ arch }}-android
+  restore brew cache for ios: &cache_restore_brew_ios
+    name: Restoring Brew cache
+    keys:
+      - *key_brew_ios
 
-restore brew cache for android: &cache_restore_brew_android
-  name: Restoring Brew cache for android
-  keys:
-  - legacy-brew-cache-{{ arch }}-android
+  save brew cache for android: &cache_save_brew_android
+    name: Saving Brew cache for android
+    paths:
+      - ~/Library/Caches/Homebrew
+    key: *key_brew_android
 
-# yarn
-save yarn cache: &cache_save_yarn
-  name: Saving Yarn cache
-  paths:
-    - ~/.cache/yarn
-    - ~/Library/Detox
-  key: legacy-yarn-cache-{{ checksum "package.json" }}-{{ arch }}
+  restore brew cache for android: &cache_restore_brew_android
+    name: Restoring Brew cache for android
+    keys:
+      - *key_brew_android
 
-restore yarn cache: &cache_restore_yarn
-  name: Restoring Yarn cache
-  keys:
-    - legacy-yarn-cache-{{ checksum "package.json" }}-{{ arch }}
+  # yarn
+  save yarn cache: &cache_save_yarn
+    name: Saving Yarn cache
+    paths:
+      - ~/.cache/yarn
+      - ~/Library/Detox
+    key: *key_yarn
 
-# gradle
-save gradle wrapper cache: &cache_save_gradle_wrapper
-  name: Saving Gradle Wrapper cache
-  paths:
-    - ~/.gradle/wrapper
-  key: gradle-wrapper-legacy-{{ checksum "example/android/gradle/wrapper/gradle-wrapper.properties" }}
+  restore yarn cache: &cache_restore_yarn
+    name: Restoring Yarn cache
+    keys:
+      - *key_yarn
 
-save gradle build cache: &cache_save_gradle_build
-  name: Saving Gradle app/build cache
-  paths:
-    - ~/.gradle/caches
-  key: app-build-gradle-legacy-{{ checksum "example/android/app/build.gradle" }}
+  # gradle
+  save gradle cache: &cache_save_gradle
+    name: Saving Gradle cache
+    key: *key_gradle
+    paths:
+      - ~/.gradle/wrapper
+      - ~/.gradle/caches
 
-restore gradle wrapper cache: &cache_restore_gradle_wrapper
-  name: Restoring Gradle Wrapper cache
-  keys:
-    - gradle-wrapper-legacy-{{ checksum "example/android/gradle/wrapper/gradle-wrapper.properties" }}
+  restore gradle cache: &cache_restore_gradle
+    name: Restoring Gradle cache
+    keys:
+      - *key_gradle
 
-restore gradle build cache: &cache_restore_gradle_build
-  name: Restoring Gradle app/build cache
-  keys:
-    - app-build-gradle-legacy-{{ checksum "example/android/app/build.gradle" }}
+  # cocoapods
+  save pods cache: &cache_save_pods
+    name: Saving Pods
+    key: *key_pods
+    paths:
+      - example/ios/Pods
 
+  restore pods cache: &cache_restore_pods
+    name: Restoring Pods
+    keys:
+      - *key_pods
 
 # ==============================
 # JOBS
@@ -129,42 +141,15 @@ jobs:
           name: Lint check
           command: yarn test:lint
 
-  "Test: flow":
+  "Test: TypeScript":
     <<: *js_defaults
     steps:
       - *addWorkspace
       - run:
-          name: Flow check
-          command: yarn test:flow
+          name: TypeScript check
+          command: yarn test:ts
 
-  "Test: iOS e2e":
-    <<: *macos_defaults
-    steps:
-      - *addWorkspace
-      - restore-cache: *cache_restore_brew
-      - run:
-          name: Configure OSX Environment
-          command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install node@8 >/dev/null
-            HOMEBREW_NO_AUTO_UPDATE=1 brew tap wix/brew >/dev/null
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install applesimutils >/dev/null
-            touch .watchmanconfig
-            node -v
-      - save-cache: *cache_save_brew
-      - restore-cache: *cache_restore_yarn
-      - run:
-          name: Installing Yarn dependencies
-          command: yarn --pure-lockfile --non-interactive --cache-folder ~/.cache/yarn
-      - save-cache: *cache_save_yarn
-      - run:
-          name: Build iOS app
-          command: yarn build:e2e:ios
-
-      - run:
-          name: Run e2e tests
-          command: yarn test:e2e:ios
-
-  "Build: Android release apk":
+  "Test: Android unit":
     <<: *android_defaults
     steps:
       - *addWorkspace
@@ -173,28 +158,78 @@ jobs:
           name: Installing Yarn dependencies
           command: yarn --pure-lockfile --non-interactive --cache-folder ~/.cache/yarn
       - save-cache: *cache_save_yarn
-
-      # Gradle
-      - restore-cache: *cache_restore_gradle_wrapper
-      - restore-cache: *cache_restore_gradle_build
+      - restore-cache: *cache_restore_gradle
       - run:
           name: Downloading Gradle dependencies
-          command: cd example/android && ./gradlew --max-workers 2 fetchDependencies
-      - save-cache: *cache_save_gradle_wrapper
-      - save-cache: *cache_save_gradle_build
-
-    # Build and test
+          working_directory: example/android
+          command: ./gradlew --max-workers 2 fetchDependencies
+      - save-cache: *cache_save_gradle
       - run:
-          name: Build Android apk
-          command: cd example/android && ./gradlew assembleRelease assembleAndroidTest -DtestBuildType=release --max-workers 2
+          name: Next storage tests
+          working_directory: example/android
+          command: ./gradlew react-native-async-storage_async-storage:test
 
+  "Test: iOS e2e":
+    <<: *macos_defaults
+    steps:
+      - *addWorkspace
+      - restore-cache: *cache_restore_brew_ios
+      - run:
+          name: Configure macOS Environment
+          command: |
+            brew bundle --file=.circleci/Brewfile.ios --no-lock
+            touch .watchmanconfig
+            echo Node $(node --version)
+      - save-cache: *cache_save_brew_ios
+      - restore-cache: *cache_restore_yarn
+      - run:
+          name: Installing Yarn dependencies
+          command: yarn --pure-lockfile --non-interactive --cache-folder ~/.cache/yarn
+      - save-cache: *cache_save_yarn
+      - restore-cache: *cache_restore_pods
+      - run:
+          name: Bundle JS
+          command: yarn bundle:ios --dev false
+      - run:
+          name: Install pod dependencies
+          working_directory: example/ios
+          command: pod install
+      - save-cache: *cache_save_pods
+      - run:
+          name: Boot simulator
+          background: true
+          command: ./scripts/ios_e2e.sh 'run_simulator'
+      - run:
+          name: Build iOS app
+          command: |
+            # Workaround for `nvm is not compatible with the "PREFIX" environment variable`
+            echo > node_modules/react-native/scripts/find-node.sh
+            yarn build:e2e:ios
+      - run:
+          name: Run e2e tests
+          command: yarn test:e2e:ios
+
+  "Build: Android release apk":
+    <<: *android_defaults
+    steps:
+      - *addWorkspace
+      - run:
+          name: Bundle JS
+          command: yarn bundle:android --dev false
+      - run:
+          name: Build APKs
+          command: yarn build:e2e:android
+      - run:
+          name: Build APK with Next storage
+          working_directory: example/android
+          command: ./gradlew assembleNext --max-workers 2
       - persist_to_workspace:
           root: ~/async_storage
           paths:
             - example/android/app/build/outputs/apk/*
 
   "Test: Android e2e":
-    <<: *macos_defaults
+    <<: *macos_defaults_android
     steps:
       - *addWorkspace
       - run:
@@ -202,33 +237,27 @@ jobs:
           command: |
             echo 'export ANDROID_HOME="/usr/local/share/android-sdk"' >> $BASH_ENV
             echo 'export ANDROID_SDK_ROOT="/usr/local/share/android-sdk"' >> $BASH_ENV
-            echo 'export PATH="$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/tools/bin:$PATH"' >> $BASH_ENV
+            echo 'export PATH="$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools:$PATH"' >> $BASH_ENV
             echo 'export QEMU_AUDIO_DRV=none' >> $BASH_ENV
-            echo 'export JAVA_HOME=/Library/Java/Home' >> $BASH_ENV
+            echo 'export JAVA_HOME=$(/usr/libexec/java_home)' >> $BASH_ENV
             source $BASH_ENV
-
-    # Android tools
       - restore-cache: *cache_restore_brew_android
       - run:
           name: Install Android SDK tools
           command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew tap homebrew/cask >/dev/null
-            HOMEBREW_NO_AUTO_UPDATE=1 brew cask install android-sdk >/dev/null
-            HOMEBREW_NO_AUTO_UPDATE=1 brew cask install intel-haxm >/dev/null
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install node@8 >/dev/null >/dev/null
+            brew update --preinstall
+            brew bundle --file=.circleci/Brewfile.android --no-lock
       - save-cache: *cache_save_brew_android
-
       - run:
           name: Install Android emulator
           shell: /bin/bash -e
           command: |
-            yes | sdkmanager "platform-tools"  "tools" >/dev/null
-            yes | sdkmanager "platforms;android-28" "system-images;android-21;google_apis;x86" >/dev/null
-            yes | sdkmanager "emulator" --channel=3 >/dev/null
-            yes | sdkmanager "build-tools;28.0.3" >/dev/null
-            yes | sdkmanager --licenses >/dev/null
+            yes | sdkmanager "platform-tools" "tools" 1> /dev/null
+            yes | sdkmanager "platforms;android-28" "system-images;android-28;default;x86_64" 1> /dev/null
+            yes | sdkmanager "emulator" --channel=3 1> /dev/null
+            yes | sdkmanager "build-tools;28.0.3" 1> /dev/null
+            yes | sdkmanager --licenses 1> /dev/null
             yes | sdkmanager --list
-
       - run:
           name: ADB start/stop
           command: |
@@ -236,19 +265,14 @@ jobs:
             adb devices
             adb kill-server
             ls -la ~/.android
-
       - run:
           name: Create emulator
           command: |
-            avdmanager create avd \
-                   --force \
+            avdmanager create avd --force \
                    -n "Emu_E2E" \
-                   -k "system-images;android-21;google_apis;x86" \
-                   -g "google_apis" \
-                   -d "Nexus 4"
-
-
-
+                   -k "system-images;android-28;default;x86_64" \
+                   -g "default" \
+                   -d "pixel"
       - run:
           name: Start emulator in background
           background: true
@@ -262,20 +286,31 @@ jobs:
                 -no-snapshot \
                 -no-boot-anim \
                 -no-window \
-                -logcat '*:W' | grep -i "ReactNative"
-
+                -logcat '*:E ReactNative:W ReactNativeJS:*'
       - run:
           name: Wait for emulator to boot
-          command: yarn build:e2e:android
-
+          command: ./scripts/android_e2e.sh 'wait_for_emulator'
       - run:
           name: Wake device
           command: |
             adb shell input keyevent 82
-
       - run:
           name: Run e2e tests
           command: yarn test:e2e:android
+      - run:
+          name: Clear previous app from device
+          command: adb uninstall com.microsoft.reacttestapp
+      - run:
+          name: Run e2e tests for Next storage
+          command: yarn detox test -c android.emu.release.next --maxConcurrency 1
+
+  Release:
+    <<: *js_defaults
+    steps:
+      - *addWorkspace
+      - run:
+          name: Release new version
+          command: yarn semantic-release
 
 # ==============================
 # WORK FLOWS
@@ -288,19 +323,29 @@ workflows:
       - "Test: lint":
           requires:
             - "Setup environment"
-      - "Test: flow":
+      - "Test: TypeScript":
+          requires:
+            - "Setup environment"
+      - "Test: Android unit":
           requires:
             - "Setup environment"
       - "Test: iOS e2e":
           requires:
             - "Test: lint"
-            - "Test: flow"
+            - "Test: TypeScript"
       - "Build: Android release apk":
           requires:
             - "Test: lint"
-            - "Test: flow"
-#      - "Test: Android e2e":
-#          requires:
-#            - "Test: lint"
-#            - "Test: flow"
-#            - "Build: Android release apk"
+            - "Test: TypeScript"
+            - "Test: Android unit"
+      - "Test: Android e2e":
+          requires:
+            - "Build: Android release apk"
+      - "Release":
+          requires:
+            - "Test: iOS e2e"
+            - "Test: Android e2e"
+          filters:
+            branches:
+              only: master
+

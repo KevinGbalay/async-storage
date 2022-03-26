@@ -1,7 +1,12 @@
-rootProject.name = 'AsyncStorageExample'
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenLocal()
+        google()
+    }
+}
 
-include ':app'
-include ':rnAsyncStorage'
+rootProject.name = "AsyncStorageExample"
 
-
-project(':rnAsyncStorage').projectDir = new File(rootProject.projectDir, '../../android')
+apply(from: "../../node_modules/react-native-test-app/test-app.gradle")
+applyTestAppSettings(settings)
